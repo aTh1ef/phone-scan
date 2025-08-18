@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react"
 import { Camera, Flashlight, FlashlightOff } from "lucide-react"
-import { BrowserMultiFormatReader } from "@zxing/browser"
+import { BrowserMultiFormatReader, BrowserCodeReader } from "@zxing/browser"
 
 interface CameraScannerProps {
   onScanResult: (imei: string) => void
@@ -22,8 +22,7 @@ export function CameraScanner({ onScanResult }: CameraScannerProps) {
   useEffect(() => {
     const initializeDevices = async () => {
       try {
-        const reader = new BrowserMultiFormatReader()
-        const devices = await reader.listVideoInputDevices()
+        const devices = await BrowserCodeReader.listVideoInputDevices()
         console.log("[v0] Available camera devices:", devices)
         setAvailableDevices(devices)
 
