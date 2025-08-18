@@ -15,13 +15,18 @@ export function CameraScanner({ onScanResult }: CameraScannerProps) {
   const [availableDevices, setAvailableDevices] = useState<MediaDeviceInfo[]>([])
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("")
   const [permissionState, setPermissionState] = useState<"unknown" | "granted" | "denied">("unknown")
+  const [isClient, setIsClient] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const readerRef = useRef<BrowserMultiFormatReader | null>(null)
   const scanningRef = useRef<boolean>(false)
 
   useEffect(() => {
+    setIsClient(true)
+
     const checkSecureContext = () => {
+      if (typeof window === "undefined") return false
+
       if (!window.isSecureContext) {
         setError("Camera access requires HTTPS. Please use a secure connection.")
         return false
@@ -252,9 +257,30 @@ export function CameraScanner({ onScanResult }: CameraScannerProps) {
     }
   }, [])
 
+  if (!isClient) {
+    return (
+      <div className="space-y-4">
+        <div className="relative w-full aspect-video bg-black/20 backdrop-blur-sm border border-white/20 rounded-2xl overflow-hidden">
+          <div className="flex items-center justify-center h-full">
+            <Camera className="w-16 h-16 text-white/40" />
+          </div>
+        </div>
+        <div className="flex gap-3">
+          <button
+            disabled
+            className="flex-1 px-6 py-3 bg-white text-gray-900 border-2 border-gray-300 rounded-xl font-semibold transition-all duration-150 flex items-center justify-center gap-2 shadow-[0_4px_0_0_#d1d5db] opacity-50 cursor-not-allowed"
+          >
+            <Camera className="w-5 h-5" />
+            Loading...
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
-      {!window.isSecureContext && (
+      {typeof window !== "undefined" && !window.isSecureContext && (
         <div className="text-amber-400 text-center text-sm bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 flex items-center gap-2">
           <AlertCircle className="w-4 h-4" />
           Camera requires HTTPS. Please use a secure connection.
