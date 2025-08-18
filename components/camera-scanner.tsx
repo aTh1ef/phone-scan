@@ -48,13 +48,8 @@ export function CameraScanner({ onScanResult }: CameraScannerProps) {
       console.log("[v0] Requesting camera permission...")
       setError("")
 
-      // Request basic camera access to get permission
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 1280, min: 640 },
-          height: { ideal: 720, min: 480 },
-        },
+        video: true,
       })
 
       console.log("[v0] Camera permission granted successfully")
@@ -127,22 +122,11 @@ export function CameraScanner({ onScanResult }: CameraScannerProps) {
         if (!permissionGranted) return
       }
 
-      // Use selected device or fallback to basic constraints
-      const constraints: MediaStreamConstraints = selectedDeviceId
-        ? {
-            video: {
-              deviceId: { exact: selectedDeviceId },
-              width: { ideal: 1280, min: 640 },
-              height: { ideal: 720, min: 480 },
-            },
-          }
-        : {
-            video: {
-              facingMode: { ideal: "environment" },
-              width: { ideal: 1280, min: 640 },
-              height: { ideal: 720, min: 480 },
-            },
-          }
+      const constraints: MediaStreamConstraints = {
+        video: {
+          facingMode: "environment",
+        },
+      }
 
       console.log("[v0] Getting camera stream...")
       const stream = await navigator.mediaDevices.getUserMedia(constraints)
@@ -219,9 +203,8 @@ export function CameraScanner({ onScanResult }: CameraScannerProps) {
         setError("Camera not found. Please check your device and try again.")
       } else if (err.name === "NotReadableError") {
         setError("Camera is being used by another application.")
-      } else if (err.name === "OverconstrainedError") {
-        // Try with basic constraints
-        console.log("[v0] Trying with basic camera constraints...")
+      } else {
+        console.log("[v0] Trying with most basic camera constraints...")
         try {
           const basicStream = await navigator.mediaDevices.getUserMedia({ video: true })
           if (videoRef.current) {
@@ -231,12 +214,12 @@ export function CameraScanner({ onScanResult }: CameraScannerProps) {
             scanningRef.current = true
             readerRef.current = new BrowserMultiFormatReader()
             setTimeout(() => startContinuousScanning(), 500)
+            console.log("[v0] Basic camera access successful")
           }
         } catch (basicErr) {
+          console.error("[v0] Basic camera access also failed:", basicErr)
           setError("Camera access failed. Please check your device and permissions.")
         }
-      } else {
-        setError(`Camera error: ${err.message}`)
       }
     }
   }
