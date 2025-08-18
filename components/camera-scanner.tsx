@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { Camera, Flashlight, FlashlightOff, AlertCircle } from "lucide-react"
+import { Camera, Flashlight, FlashlightOff, AlertCircle, RefreshCw } from "lucide-react"
 import { BrowserMultiFormatReader } from "@zxing/browser"
 
 interface CameraScannerProps {
@@ -23,106 +23,139 @@ export function CameraScanner({ onScanResult }: CameraScannerProps) {
 
   useEffect(() => {
     setIsClient(true)
-
-    const checkSecureContext = () => {
-      if (typeof window === "undefined") return false
-
-      if (!window.isSecureContext) {
-        setError("Camera access requires HTTPS. Please use a secure connection.")
-        return false
-      }
-
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setError("Camera access is not supported in this browser.")
-        return false
-      }
-
-      return true
-    }
-
-    const initializeDevices = async () => {
-      if (!checkSecureContext()) return
-
-      try {
-        console.log("[v0] Checking camera permissions...")
-
-        try {
-          const tempStream = await navigator.mediaDevices.getUserMedia({ video: true })
-          tempStream.getTracks().forEach((track) => track.stop())
-          setPermissionState("granted")
-          console.log("[v0] Camera permission granted")
-        } catch (permErr: any) {
-          console.log("[v0] Camera permission check failed:", permErr.name)
-          if (permErr.name === "NotAllowedError") {
-            setPermissionState("denied")
-            setError(
-              "Camera permission denied. Please allow camera access in your browser settings and refresh the page.",
-            )
-            return
-          }
-        }
-
-        const devices = await navigator.mediaDevices.enumerateDevices()
-        const videoDevices = devices.filter((device) => device.kind === "videoinput")
-
-        console.log("[v0] Available camera devices:", videoDevices)
-        setAvailableDevices(videoDevices)
-
-        if (videoDevices.length === 0) {
-          setError("No camera devices found. Please check your device has a camera.")
-          return
-        }
-
-        const backCamera = videoDevices.find(
-          (device) =>
-            device.label.toLowerCase().includes("back") ||
-            device.label.toLowerCase().includes("environment") ||
-            device.label.toLowerCase().includes("rear"),
-        )
-
-        const selectedDevice = backCamera || videoDevices[0]
-        setSelectedDeviceId(selectedDevice.deviceId)
-        console.log("[v0] Selected camera:", selectedDevice.label || selectedDevice.deviceId)
-      } catch (err: any) {
-        console.error("[v0] Failed to initialize camera devices:", err)
-        setError(`Unable to access camera: ${err.message}`)
-      }
-    }
-
-    initializeDevices()
   }, [])
 
-  const startCamera = async () => {
+  const checkBrowserSupport = () => {
+    if (typeof window === "undefined") return false
+
+    if (!window.isSecureContext) {
+      setError("Camera access requires HTTPS. Please use a secure connection.")
+      return false
+    }
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setError("Camera access is not supported in this browser.")
+      return false
+    }
+
+    return true
+  }
+
+  const requestCameraPermission = async () => {
+    if (!checkBrowserSupport()) return false
+
     try {
-      console.log("[v0] Starting camera with device:", selectedDeviceId)
+      console.log("[v0] Requesting camera permission...")
       setError("")
 
-      if (!selectedDeviceId && availableDevices.length === 0) {
-        setError("No camera available. Please check your device and permissions.")
+      // Request basic camera access to get permission
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280, min: 640 },
+          height: { ideal: 720, min: 480 },
+        },
+      })
+
+      console.log("[v0] Camera permission granted successfully")
+
+      // Stop the temporary stream
+      stream.getTracks().forEach((track) => track.stop())
+
+      setPermissionState("granted")
+
+      // Now enumerate devices after getting permission
+      await enumerateDevices()
+
+      return true
+    } catch (err: any) {
+      console.error("[v0] Camera permission failed:", err.name, err.message)
+
+      if (err.name === "NotAllowedError") {
+        setPermissionState("denied")
+        setError("Camera permission denied. Please allow camera access and try again.")
+      } else if (err.name === "NotFoundError") {
+        setError("No camera found. Please check that your device has a camera and try again.")
+      } else if (err.name === "NotReadableError") {
+        setError("Camera is being used by another application. Please close other apps and try again.")
+      } else {
+        setError(`Camera access failed: ${err.message}. Please check your browser settings.`)
+      }
+
+      return false
+    }
+  }
+
+  const enumerateDevices = async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices()
+      const videoDevices = devices.filter((device) => device.kind === "videoinput")
+
+      console.log("[v0] Available camera devices:", videoDevices.length)
+      setAvailableDevices(videoDevices)
+
+      if (videoDevices.length === 0) {
+        setError("No camera devices found. Please check your device has a camera.")
         return
       }
 
-      const constraints: MediaStreamConstraints = {
-        video: selectedDeviceId
-          ? {
+      // Select back camera if available
+      const backCamera = videoDevices.find(
+        (device) =>
+          device.label.toLowerCase().includes("back") ||
+          device.label.toLowerCase().includes("environment") ||
+          device.label.toLowerCase().includes("rear"),
+      )
+
+      const selectedDevice = backCamera || videoDevices[0]
+      setSelectedDeviceId(selectedDevice.deviceId)
+      console.log("[v0] Selected camera:", selectedDevice.label || "Unknown camera")
+    } catch (err: any) {
+      console.error("[v0] Failed to enumerate devices:", err)
+      setError("Failed to list camera devices. Please refresh and try again.")
+    }
+  }
+
+  const startCamera = async () => {
+    try {
+      console.log("[v0] Starting camera...")
+      setError("")
+
+      // Request permission first if not granted
+      if (permissionState !== "granted") {
+        const permissionGranted = await requestCameraPermission()
+        if (!permissionGranted) return
+      }
+
+      // Use selected device or fallback to basic constraints
+      const constraints: MediaStreamConstraints = selectedDeviceId
+        ? {
+            video: {
               deviceId: { exact: selectedDeviceId },
               width: { ideal: 1280, min: 640 },
               height: { ideal: 720, min: 480 },
-            }
-          : {
+            },
+          }
+        : {
+            video: {
               facingMode: { ideal: "environment" },
               width: { ideal: 1280, min: 640 },
               height: { ideal: 720, min: 480 },
             },
-      }
+          }
 
-      console.log("[v0] Requesting camera with constraints:", constraints)
+      console.log("[v0] Getting camera stream...")
       const stream = await navigator.mediaDevices.getUserMedia(constraints)
       console.log("[v0] Camera stream obtained successfully")
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream
         streamRef.current = stream
+
+        videoRef.current.style.display = "block"
+        videoRef.current.style.visibility = "visible"
+
+        console.log("[v0] Stream attached to video element")
         setIsScanning(true)
         scanningRef.current = true
 
@@ -133,14 +166,23 @@ export function CameraScanner({ onScanResult }: CameraScannerProps) {
             const video = videoRef.current
 
             const onLoadedMetadata = () => {
-              console.log("[v0] Video metadata loaded, starting playback")
+              console.log("[v0] Video metadata loaded, dimensions:", video.videoWidth, "x", video.videoHeight)
               video
                 .play()
                 .then(() => {
                   console.log("[v0] Video playing successfully")
+                  console.log("[v0] Video readyState:", video.readyState)
+                  console.log("[v0] Video paused:", video.paused)
                   resolve()
                 })
-                .catch(reject)
+                .catch((playError) => {
+                  console.error("[v0] Video play failed:", playError)
+                  reject(playError)
+                })
+            }
+
+            const onCanPlay = () => {
+              console.log("[v0] Video can play")
             }
 
             const onError = (e: Event) => {
@@ -149,33 +191,37 @@ export function CameraScanner({ onScanResult }: CameraScannerProps) {
             }
 
             video.addEventListener("loadedmetadata", onLoadedMetadata, { once: true })
+            video.addEventListener("canplay", onCanPlay, { once: true })
             video.addEventListener("error", onError, { once: true })
 
-            // Timeout fallback
             setTimeout(() => {
               video.removeEventListener("loadedmetadata", onLoadedMetadata)
+              video.removeEventListener("canplay", onCanPlay)
               video.removeEventListener("error", onError)
-              resolve() // Continue even if metadata doesn't load
-            }, 3000)
+              console.log("[v0] Video setup timeout reached")
+              resolve()
+            }, 5000)
           }
         })
 
+        // Start scanning after a short delay
         setTimeout(() => {
           startContinuousScanning()
         }, 500)
       }
     } catch (err: any) {
-      console.error("[v0] Camera error:", err)
+      console.error("[v0] Camera start error:", err)
 
       if (err.name === "NotAllowedError") {
-        setError("Camera permission denied. Please allow camera access and refresh the page.")
+        setError("Camera permission denied. Please allow camera access and try again.")
         setPermissionState("denied")
       } else if (err.name === "NotFoundError") {
-        setError("No camera found. Please check your device has a camera.")
+        setError("Camera not found. Please check your device and try again.")
       } else if (err.name === "NotReadableError") {
         setError("Camera is being used by another application.")
       } else if (err.name === "OverconstrainedError") {
-        setError("Camera constraints not supported. Trying with basic settings...")
+        // Try with basic constraints
+        console.log("[v0] Trying with basic camera constraints...")
         try {
           const basicStream = await navigator.mediaDevices.getUserMedia({ video: true })
           if (videoRef.current) {
@@ -187,10 +233,10 @@ export function CameraScanner({ onScanResult }: CameraScannerProps) {
             setTimeout(() => startContinuousScanning(), 500)
           }
         } catch (basicErr) {
-          setError("Camera access failed completely. Please check your device and permissions.")
+          setError("Camera access failed. Please check your device and permissions.")
         }
       } else {
-        setError(`Camera access failed: ${err.message}`)
+        setError(`Camera error: ${err.message}`)
       }
     }
   }
@@ -204,7 +250,6 @@ export function CameraScanner({ onScanResult }: CameraScannerProps) {
       onScanResult(result.text)
       stopCamera()
     } catch (err) {
-      // Continue scanning if no barcode detected
       if (scanningRef.current) {
         setTimeout(() => startContinuousScanning(), 100)
       }
@@ -251,6 +296,13 @@ export function CameraScanner({ onScanResult }: CameraScannerProps) {
     }
   }
 
+  const retryPermission = () => {
+    setError("")
+    setPermissionState("unknown")
+    setAvailableDevices([])
+    setSelectedDeviceId("")
+  }
+
   useEffect(() => {
     return () => {
       stopCamera()
@@ -288,9 +340,23 @@ export function CameraScanner({ onScanResult }: CameraScannerProps) {
       )}
 
       {permissionState === "denied" && (
-        <div className="text-red-400 text-center text-sm bg-red-500/10 border border-red-500/20 rounded-lg p-3 flex items-center gap-2">
-          <AlertCircle className="w-4 h-4" />
-          Camera permission denied. Please enable camera access in your browser settings and refresh the page.
+        <div className="text-red-400 text-center text-sm bg-red-500/10 border border-red-500/20 rounded-lg p-3 space-y-3">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4" />
+            Camera permission denied. Please enable camera access:
+          </div>
+          <div className="text-xs text-red-300 space-y-1">
+            <p>1. Tap the camera icon in your browser's address bar</p>
+            <p>2. Select "Allow" for camera access</p>
+            <p>3. Or go to Settings → Site Settings → Camera → Allow</p>
+          </div>
+          <button
+            onClick={retryPermission}
+            className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-medium flex items-center gap-2 mx-auto hover:bg-red-600 transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Try Again
+          </button>
         </div>
       )}
 
@@ -319,8 +385,17 @@ export function CameraScanner({ onScanResult }: CameraScannerProps) {
               autoPlay
               playsInline
               muted
-              className="w-full h-full object-cover bg-black"
-              style={{ transform: "scaleX(-1)" }} // Mirror for better UX
+              className="w-full h-full object-cover"
+              style={{
+                transform: "scaleX(-1)",
+                backgroundColor: "#000",
+                minHeight: "100%",
+                minWidth: "100%",
+              }}
+              onLoadedMetadata={() => console.log("[v0] Video metadata loaded in JSX")}
+              onCanPlay={() => console.log("[v0] Video can play in JSX")}
+              onPlay={() => console.log("[v0] Video started playing in JSX")}
+              onError={(e) => console.error("[v0] Video error in JSX:", e)}
             />
             <div className="absolute inset-0 border-2 border-blue-400/50 rounded-2xl">
               <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-48 h-32 border-2 border-blue-400 rounded-lg">
@@ -350,8 +425,7 @@ export function CameraScanner({ onScanResult }: CameraScannerProps) {
       <div className="flex gap-3">
         <button
           onClick={isScanning ? stopCamera : startCamera}
-          disabled={permissionState === "denied" || (!selectedDeviceId && availableDevices.length === 0)}
-          className="flex-1 px-6 py-3 bg-white text-gray-900 border-2 border-gray-300 rounded-xl font-semibold transition-all duration-150 flex items-center justify-center gap-2 shadow-[0_4px_0_0_#d1d5db] hover:shadow-[0_2px_0_0_#d1d5db] hover:translate-y-[2px] active:shadow-[0_0px_0_0_#d1d5db] active:translate-y-[4px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex-1 px-6 py-3 bg-white text-gray-900 border-2 border-gray-300 rounded-xl font-semibold transition-all duration-150 flex items-center justify-center gap-2 shadow-[0_4px_0_0_#d1d5db] hover:shadow-[0_2px_0_0_#d1d5db] hover:translate-y-[2px] active:shadow-[0_0px_0_0_#d1d5db] active:translate-y-[4px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
         >
           <Camera className="w-5 h-5" />
           {isScanning ? "Stop Scan" : "Start Scan"}
