@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { Camera, Flashlight, FlashlightOff, AlertCircle } from "lucide-react"
+import { Camera, Flashlight, FlashlightOff, AlertCircle, RotateCcw } from "lucide-react"
 import { BrowserMultiFormatReader } from "@zxing/browser"
 
 interface CameraScannerProps {
@@ -13,6 +13,7 @@ export function CameraScanner({ onScanResult }: CameraScannerProps) {
   const [torchOn, setTorchOn] = useState(false)
   const [error, setError] = useState("")
   const [streamInfo, setStreamInfo] = useState("")
+  const [facingMode, setFacingMode] = useState<"user" | "environment">("environment")
   
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -25,10 +26,23 @@ export function CameraScanner({ onScanResult }: CameraScannerProps) {
       setError("")
       setStreamInfo("")
       
-      // Request camera with basic constraints (this is what worked)
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: true
-      })
+      // Request camera with specified facing mode
+      let stream: MediaStream
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { 
+            facingMode: { exact: facingMode }
+          }
+        })
+      } catch (exactError) {
+        console.log("⚠️ Exact facingMode failed, trying ideal...")
+        // Fallback to ideal if exact fails
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { 
+            facingMode: { ideal: facingMode }
+          }
+        })
+      }
       
       console.log("✅ Got camera stream:", stream)
       console.log("📹 Stream tracks:", stream.getTracks())
@@ -130,6 +144,19 @@ export function CameraScanner({ onScanResult }: CameraScannerProps) {
     }
   }
 
+  const switchCamera = async () => {
+    if (isActive) {
+      stopCamera()
+      setFacingMode(facingMode === "environment" ? "user" : "environment")
+      // Small delay to ensure camera is fully stopped
+      setTimeout(() => {
+        startCamera()
+      }, 100)
+    } else {
+      setFacingMode(facingMode === "environment" ? "user" : "environment")
+    }
+  }
+
   useEffect(() => {
     return () => {
       stopCamera()
@@ -188,6 +215,8 @@ export function CameraScanner({ onScanResult }: CameraScannerProps) {
         {/* Debug overlay */}
         <div className="absolute top-2 right-2 bg-black/70 text-white text-xs p-2 rounded">
           Status: {isActive ? "🟢 Active" : "🔴 Inactive"}
+          <br />
+          Camera: {facingMode === "environment" ? "📷 Back" : "🤳 Front"}
         </div>
       </div>
       
@@ -215,6 +244,14 @@ export function CameraScanner({ onScanResult }: CameraScannerProps) {
         >
           <Camera className="w-5 h-5" />
           {isActive ? "Stop Scan" : "Start Scan"}
+        </button>
+
+        <button
+          onClick={switchCamera}
+          className="px-4 py-3 bg-blue-400 text-white border-2 border-blue-500 rounded-xl font-semibold transition-all duration-150 shadow-[0_4px_0_0_#3b82f6] hover:shadow-[0_2px_0_0_#3b82f6] hover:translate-y-[2px] active:shadow-[0_0px_0_0_#3b82f6] active:translate-y-[4px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          title={`Switch to ${facingMode === "environment" ? "front" : "back"} camera`}
+        >
+          <RotateCcw className="w-5 h-5" />
         </button>
 
         {isActive && (
